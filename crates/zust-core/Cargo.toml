@@ -1,0 +1,50 @@
+[package]
+name = "zust-core"
+version = "0.1.0"
+edition = "2021"
+description = "ZUST 教务系统核心库 — HTTP 会话、认证、API 客户端、抢课引擎"
+
+[dependencies]
+# HTTP client - use default TLS (schannel on Windows), reliable danger_accept_invalid_certs
+reqwest = { version = "0.12", features = [
+    "cookies",
+    "gzip",
+    "brotli",
+    "json",
+] }
+
+# Crypto — AES-CBC
+aes = "0.8"
+cbc = "0.1"
+block-padding = "0.3"
+
+# Crypto — RSA PKCS#1 v1.5
+rsa = { version = "0.9", features = ["pem"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+
+# Random (salt, IV)
+rand = "0.8"
+
+# Regex for HTML scraping (login forms, course tabs)
+regex = "1"
+
+# URL encoding
+url = "2"
+
+# Base64 (already used by reqwest, but needed for crypto)
+base64 = "0.22"
+
+# Platform directories (config/cache dirs)
+dirs = "6"
+
+# Async runtime (only needed for tokio::sync::Mutex, time, etc.)
+tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
+
+# Logging
+log = "0.4"

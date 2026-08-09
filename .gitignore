@@ -1,0 +1,32 @@
+# ===== 前端构建产物 =====
+node_modules/
+dist/
+dist-ssr/
+
+# ===== Rust / Cargo 构建产物 =====
+target/
+crates/zust-core/target/
+src-tauri/target/
+**/*.rs.bk
+
+# ===== Tauri 自动生成 =====
+src-tauri/gen/
+
+# ===== 运行期敏感文件（绝不可提交）=====
+credentials.json
+*.session.json
+token.json
+
+# ===== 日志 =====
+*.log
+logs/
+
+# ===== 操作系统 / 编辑器 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

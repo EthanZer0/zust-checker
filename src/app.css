@@ -1,0 +1,225 @@
+:root {
+  /* ── Backgrounds ── */
+  --bg-primary: #0e1016;
+  --bg-secondary: #161922;
+  --bg-card: #1c2030;
+  --bg-hover: #262b3d;
+  /* ── Text ── */
+  --text-primary: #e8eaf0;
+  --text-secondary: #8b90a3;
+  /* ── Accent (Midnight Indigo) ── */
+  --accent: #818cf8;
+  --accent-dim: #6b76e6;
+  --accent-soft: rgba(129, 140, 248, 0.12); /* active bg / highlight rows / focus ring */
+  /* ── Semantic ── */
+  --error: #f87171;
+  --warning: #fbbf24;
+  --success: #4ade80;
+  --border: #2a3040;
+  /* ── Radius scale ── */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+  /* ── Shadow scale ── */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.45);
+  /* ── Motion ── */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 150ms;
+  --dur: 220ms;
+}
+
+/* ═══ Light theme — Everlasting Sky ═══
+   Warm cream backdrop (softened webgradients #029) with warm-cream chrome
+   and warm-white cards, so nothing pops as stark white. Espresso accent.
+   Only color/shadow tokens overridden — radius/motion inherited from :root. */
+[data-theme="light"] {
+  --bg-primary: #f7f0e7;   /* warm page fallback / scrollbar track */
+  --bg-secondary: #f4ede2; /* warm-cream chrome: sidebar / header / th / insets */
+  --bg-card: #fffdf8;      /* warm-white cards, lift via shadow */
+  --bg-hover: #ebe0d1;     /* warm hover / skeleton */
+  --text-primary: #3d342c; /* warm ink */
+  --text-secondary: #857868;
+  --accent: #6f5849;       /* espresso */
+  --accent-dim: #57463a;
+  --accent-soft: rgba(111, 88, 73, 0.12);
+  --error: #d64545;
+  --warning: #c17d1a;
+  --success: #3f9142;
+  --border: #e6dccd;       /* warm sand border */
+  --shadow-sm: 0 1px 3px rgba(90, 70, 45, 0.06);
+  --shadow-md: 0 6px 20px rgba(90, 70, 45, 0.08);
+  --shadow-lg: 0 14px 44px rgba(90, 70, 45, 0.14);
+}
+/* Dashboard backdrop: a soft, light cream→sand so dense content stays
+   readable and chrome doesn't clash. */
+[data-theme="light"] body {
+  background: linear-gradient(135deg, #fbf6f0 0%, #f1e6d7 100%) fixed;
+}
+/* Login page keeps the full vivid Everlasting Sky gradient (hero moment). */
+[data-theme="light"] .login-container {
+  background: linear-gradient(135deg, #fdfcfb 0%, #e2d1c3 100%);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  background:
+    radial-gradient(1200px 600px at 100% 0%, rgba(129, 140, 248, 0.08), transparent 60%),
+    var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+  height: 100vh;
+}
+
+#app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+input {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  padding: 10px 14px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+button {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: var(--radius);
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+button:hover {
+  background: var(--accent-dim);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+button:active {
+  transform: translateY(0) scale(0.98);
+  box-shadow: none;
+}
+button:focus-visible {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+button.secondary {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+button.secondary:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  border-bottom: 2px solid var(--border);
+}
+td {
+  padding: 8px 12px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+tr:hover td {
+  background: var(--bg-hover);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+  transition: background var(--dur-fast) var(--ease);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-dim);
+}
+
+/* ── Unified GPA / score color scale ── */
+.gpa-green  { color: var(--success); }
+.gpa-blue   { color: #60a5fa; }
+.gpa-cyan   { color: #38bdf8; }
+.gpa-yellow { color: var(--warning); }
+.gpa-red    { color: var(--error); }
+/* deeper blues for contrast on light background */
+[data-theme="light"] .gpa-blue { color: #2563eb; }
+[data-theme="light"] .gpa-cyan { color: #0891b2; }
+
+/* ── Card utility ── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+/* ── Skeleton (shared loading placeholder) ── */
+.skeleton-line {
+  display: inline-block;
+  height: 12px;
+  background: var(--bg-hover);
+  border-radius: 3px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+.w-6  { width: 24px; }
+.w-10 { width: 40px; }
+.w-12 { width: 48px; }
+.w-16 { width: 64px; }
+.w-20 { width: 80px; }
+.w-60 { width: 240px; }
+.mt-1 { margin-top: 4px; }
