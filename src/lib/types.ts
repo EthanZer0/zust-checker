@@ -113,3 +113,21 @@ export interface LoginStep {
   step: number;
   message: string;
 }
+
+export interface CaptchaChallenge {
+  kind: 'captcha' | string;
+  image_base64: string;
+  message: string;
+}
+
+export interface ReauthChallenge {
+  kind: 'sms' | string;
+  reauth_type: string;
+  is_multifactor: boolean;
+  message: string;
+}
+
+export type LoginResponse =
+  | { status: 'success'; user: UserInfo }
+  | { status: 'captcha_required'; challenge: CaptchaChallenge }
+  | { status: 'reauth_required'; challenge: ReauthChallenge };

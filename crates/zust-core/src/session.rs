@@ -7,10 +7,10 @@
 use crate::error::{Result, ZustError};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use url::Url;
 
 /// User-Agent（与 Python 版本完全一致）
-pub const USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
      (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36";
 
 /// HTTP 会话
@@ -200,11 +200,7 @@ impl HttpSession {
         Ok(result)
     }
 
-    pub async fn post(
-        &self,
-        url: &str,
-        data: &[(&str, &str)],
-    ) -> Result<(String, String, u16)> {
+    pub async fn post(&self, url: &str, data: &[(&str, &str)]) -> Result<(String, String, u16)> {
         self.post_with_headers(url, data, &HashMap::new()).await
     }
 
@@ -260,6 +256,23 @@ impl HttpSession {
 
     pub fn client_ref(&self) -> &reqwest::Client {
         &self.client
+    }
+
+    /// Resolve a redirect Location against the URL that produced it.
+    ///
+    /// CAS deployments do not always return absolute redirect URLs. Browser
+    /// clients resolve relative Locations automatically, so the native client
+    /// must do the same before issuing the next request.
+    fn resolve_redirect(base_url: &str, location: &str) -> Result<String> {
+        if let Ok(absolute) = Url::parse(location) {
+            return Ok(absolute.to_string());
+        }
+
+        let base = Url::parse(base_url)
+            .map_err(|e| ZustError::Http(format!("Invalid redirect base URL: {e}")))?;
+        base.join(location)
+            .map(|url| url.to_string())
+            .map_err(|e| ZustError::Http(format!("Invalid redirect Location: {e}")))
     }
 
     /// POST raw body with a custom Content-Type（用于特殊场景的原始请求体）
@@ -320,12 +333,15 @@ impl HttpSession {
 
             log::info!(
                 "GET redirect hop {}: status={}, url={}",
-                hop, current_status, current_url
+                hop,
+                current_status,
+                current_url
             );
 
             if current_status == 301 || current_status == 302 || current_status == 303 {
                 if let Some(loc) = headers.get(reqwest::header::LOCATION) {
-                    current_url = loc.to_str().unwrap_or(&current_url).to_string();
+                    let location = loc.to_str().unwrap_or_default();
+                    current_url = Self::resolve_redirect(&current_url, location)?;
                     continue;
                 }
             }
@@ -367,7 +383,8 @@ impl HttpSession {
         let body = resp.text().await?;
         self.collect_set_cookies(&headers);
         let mut current_url = if let Some(loc) = headers.get(reqwest::header::LOCATION) {
-            loc.to_str().unwrap_or(url).to_string()
+            let location = loc.to_str().unwrap_or_default();
+            Self::resolve_redirect(url, location)?
         } else {
             url.to_string()
         };
@@ -393,7 +410,8 @@ impl HttpSession {
             self.collect_set_cookies(&get_headers);
 
             if let Some(loc) = get_headers.get(reqwest::header::LOCATION) {
-                current_url = loc.to_str().unwrap_or(&current_url).to_string();
+                let location = loc.to_str().unwrap_or_default();
+                current_url = Self::resolve_redirect(&current_url, location)?;
             }
             log::info!("  → status={current_status}, location={current_url}");
         }
@@ -448,5 +466,18 @@ mod tests {
         let session = HttpSession::from_cookies(&cookies).unwrap();
         assert!(session.has_cookie("MOD_AUTH_CAS"));
         assert!(!session.has_cookie("nonexistent"));
+    }
+
+    #[test]
+    fn test_resolve_relative_redirect() {
+        let resolved = HttpSession::resolve_redirect(
+            "https://authserver.zust.edu.cn/authserver/login?service=x",
+            "/authserver/reAuthCheck/reAuthLoginView.do?isMultifactor=true",
+        )
+        .unwrap();
+        assert_eq!(
+            resolved,
+            "https://authserver.zust.edu.cn/authserver/reAuthCheck/reAuthLoginView.do?isMultifactor=true"
+        );
     }
 }

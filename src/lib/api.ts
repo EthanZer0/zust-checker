@@ -1,15 +1,38 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   UserInfo, GradeSummary, DashboardData, ScheduleEntry, ExamEntry,
-  CourseTab, SniperTarget, SniperTickResult, SniperStatusInfo,
+  CourseTab, SniperTarget, SniperTickResult, SniperStatusInfo, LoginResponse,
+  CaptchaChallenge,
 } from './types';
 
 export async function checkSession(): Promise<UserInfo | null> {
   return invoke('check_session');
 }
 
-export async function login(username: string, casPassword: string, wiseduPassword: string): Promise<UserInfo> {
-  return invoke('login', { username, casPassword: casPassword, wiseduPassword: wiseduPassword });
+export async function login(
+  username: string,
+  casPassword: string,
+  wiseduPassword: string,
+  captcha?: string | null,
+): Promise<LoginResponse> {
+  return invoke('login', {
+    username,
+    casPassword,
+    wiseduPassword,
+    captcha: captcha ?? null,
+  });
+}
+
+export async function refreshCaptcha(): Promise<CaptchaChallenge> {
+  return invoke('refresh_captcha');
+}
+
+export async function sendReauthCode(): Promise<string> {
+  return invoke('send_reauth_code');
+}
+
+export async function verifyReauthCode(code: string, trustDevice: boolean): Promise<UserInfo> {
+  return invoke('verify_reauth_code', { code, trustDevice });
 }
 
 export async function loadCredentials(): Promise<{ username: string; cas_password: string; wisedu_password: string } | null> {

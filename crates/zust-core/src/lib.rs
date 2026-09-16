@@ -9,18 +9,18 @@
 //!   client.rs  — JWClient API 封装
 //!   sniper.rs  — EnrollSniper 抢课引擎
 
-pub mod error;
-pub mod types;
-pub mod crypto;
-pub mod session;
 pub mod auth;
 pub mod client;
+pub mod crypto;
+pub mod error;
+pub mod session;
 pub mod sniper;
+pub mod types;
 
 // 重导出常用类型
-pub use error::{Result, ZustError};
-pub use types::*;
-pub use session::HttpSession;
 pub use auth::AuthManager;
 pub use client::JWClient;
+pub use error::{Result, ZustError};
+pub use session::HttpSession;
 pub use sniper::EnrollSniper;
+pub use types::*;

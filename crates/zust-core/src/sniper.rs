@@ -13,8 +13,8 @@
 //! 轮间由调用方施加 interval + jitter，避免同一 session 的 N 次请求挤进同一毫秒窗口。
 
 use crate::client::JWClient;
-use crate::types::{SniperStats, SniperTarget, SniperTargetStatus, SniperTickResult};
 use crate::error::Result;
+use crate::types::{SniperStats, SniperTarget, SniperTargetStatus, SniperTickResult};
 use serde_json::Value as JsonValue;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -121,10 +121,8 @@ impl EnrollSniper {
 
                     let resp = jw_client
                         .enroll_course(
-                            &t.jxb_ids, &t.kch_id, &t.kcmc,
-                            &t.xkkz_id, &t.kklxdm,
-                            &t.xkxnm, &t.xkxqm,
-                            &t.njdm_id, &t.zyh_id,
+                            &t.jxb_ids, &t.kch_id, &t.kcmc, &t.xkkz_id, &t.kklxdm, &t.xkxnm,
+                            &t.xkxqm, &t.njdm_id, &t.zyh_id,
                         )
                         .await
                         .unwrap_or_else(|e| {
@@ -146,7 +144,12 @@ impl EnrollSniper {
                         }
                     }
 
-                    SniperTargetStatus { kch_id, kcmc, status, detail }
+                    SniperTargetStatus {
+                        kch_id,
+                        kcmc,
+                        status,
+                        detail,
+                    }
                 })
             })
             .collect();
@@ -232,7 +235,10 @@ fn parse_enroll_result(r: &JsonValue, _target: &SniperTarget) -> (String, String
             || raw_lower.contains("login");
         if is_html {
             let snippet = raw.chars().take(120).collect::<String>();
-            return ("session_expired".into(), format!("Session 失效（返回 HTML 页面）: {snippet}"));
+            return (
+                "session_expired".into(),
+                format!("Session 失效（返回 HTML 页面）: {snippet}"),
+            );
         }
 
         // ── 已知中文关键词 ──
@@ -293,10 +299,7 @@ fn parse_enroll_result(r: &JsonValue, _target: &SniperTarget) -> (String, String
             }
             "0" => {
                 // 可能是冲突或不可选
-                let msg = r
-                    .get("msg")
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("未知原因");
+                let msg = r.get("msg").and_then(|m| m.as_str()).unwrap_or("未知原因");
                 if msg.contains("冲突") || msg.contains("已选") {
                     return ("conflict".into(), msg.to_string());
                 }
@@ -325,10 +328,7 @@ fn parse_enroll_result(r: &JsonValue, _target: &SniperTarget) -> (String, String
             return ("conflict".into(), raw.chars().take(200).collect());
         }
         if raw.contains("容量") || raw.contains("已满") || raw.contains("不可选") {
-            return (
-                "unavailable".into(),
-                raw.chars().take(200).collect(),
-            );
+            return ("unavailable".into(), raw.chars().take(200).collect());
         }
         return ("unknown".into(), raw.chars().take(200).collect());
     }
@@ -343,8 +343,7 @@ fn parse_enroll_result(r: &JsonValue, _target: &SniperTarget) -> (String, String
     }
 
     // 回退
-    let detail = serde_json::to_string(r)
-        .unwrap_or_default();
+    let detail = serde_json::to_string(r).unwrap_or_default();
     let detail_short: String = detail.chars().take(200).collect();
     ("unknown".into(), detail_short)
 }
@@ -356,40 +355,28 @@ mod tests {
     #[test]
     fn test_parse_flag_1_success() {
         let r = serde_json::json!({"flag": "1"});
-        let (status, _detail) = parse_enroll_result(
-            &r,
-            &SniperTarget::default(),
-        );
+        let (status, _detail) = parse_enroll_result(&r, &SniperTarget::default());
         assert_eq!(status, "success");
     }
 
     #[test]
     fn test_parse_flag_0_conflict() {
         let r = serde_json::json!({"flag": "0", "msg": "已选冲突"});
-        let (status, _detail) = parse_enroll_result(
-            &r,
-            &SniperTarget::default(),
-        );
+        let (status, _detail) = parse_enroll_result(&r, &SniperTarget::default());
         assert_eq!(status, "conflict");
     }
 
     #[test]
     fn test_parse_raw_success() {
         let r = serde_json::json!({"_raw": "\"flag\":\"1\" 选课成功"});
-        let (status, _detail) = parse_enroll_result(
-            &r,
-            &SniperTarget::default(),
-        );
+        let (status, _detail) = parse_enroll_result(&r, &SniperTarget::default());
         assert_eq!(status, "success");
     }
 
     #[test]
     fn test_parse_flag_minus1_full() {
         let r = serde_json::json!({"flag": "-1", "code": "1"});
-        let (status, _detail) = parse_enroll_result(
-            &r,
-            &SniperTarget::default(),
-        );
+        let (status, _detail) = parse_enroll_result(&r, &SniperTarget::default());
         assert_eq!(status, "unavailable");
     }
 }

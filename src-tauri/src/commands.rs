@@ -5,10 +5,13 @@
 //! 模式：clone JWClient → drop MutexGuard → await on clone
 
 use crate::state::{AppState, SniperState};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State};
-use zust_core::auth::AuthManager;
+use zust_core::auth::{
+    AuthFlowResult, AuthManager, AuthSuccess, CaptchaChallenge, ReauthChallenge,
+};
 use zust_core::client::JWClient;
 use zust_core::sniper::EnrollSniper;
 use zust_core::types::*;
@@ -17,10 +20,16 @@ use zust_core::types::*;
 // 认证命令
 // ═══════════════════════════════════════════════════════════════════════════
 
+#[derive(Debug, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum LoginResponse {
+    Success { user: UserInfo },
+    CaptchaRequired { challenge: CaptchaChallenge },
+    ReauthRequired { challenge: ReauthChallenge },
+}
+
 #[tauri::command]
-pub async fn check_session(
-    state: State<'_, AppState>,
-) -> Result<Option<UserInfo>, String> {
+pub async fn check_session(state: State<'_, AppState>) -> Result<Option<UserInfo>, String> {
     let cookies = {
         let auth = state.auth_manager.lock().map_err(|e| e.to_string())?;
         auth.load_session()
@@ -55,18 +64,82 @@ pub async fn login(
     username: String,
     cas_password: String,
     wisedu_password: String,
-) -> Result<UserInfo, String> {
-    let auth = AuthManager::new();
+    captcha: Option<String>,
+) -> Result<LoginResponse, String> {
+    let auth = {
+        let lock = state.auth_manager.lock().map_err(|e| e.to_string())?;
+        lock.clone()
+    };
 
     let app_handle = app.clone();
-    let cookies = auth
-        .full_login(&username, &cas_password, &wisedu_password, move |step| {
+    let result = auth
+        .login_start(
+            &username,
+            &cas_password,
+            &wisedu_password,
+            captcha.as_deref(),
+            move |step| {
+                let _ = app_handle.emit("login-step", &step);
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    match result {
+        AuthFlowResult::Complete(success) => {
+            let user = complete_login(&state, success).await?;
+            Ok(LoginResponse::Success { user })
+        }
+        AuthFlowResult::CaptchaRequired(challenge) => {
+            Ok(LoginResponse::CaptchaRequired { challenge })
+        }
+        AuthFlowResult::ReauthRequired(challenge) => {
+            Ok(LoginResponse::ReauthRequired { challenge })
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn refresh_captcha(state: State<'_, AppState>) -> Result<CaptchaChallenge, String> {
+    let auth = {
+        let lock = state.auth_manager.lock().map_err(|e| e.to_string())?;
+        lock.clone()
+    };
+    auth.refresh_captcha().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn send_reauth_code(state: State<'_, AppState>) -> Result<String, String> {
+    let auth = {
+        let lock = state.auth_manager.lock().map_err(|e| e.to_string())?;
+        lock.clone()
+    };
+    auth.send_reauth_code().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn verify_reauth_code(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    code: String,
+    trust_device: bool,
+) -> Result<UserInfo, String> {
+    let auth = {
+        let lock = state.auth_manager.lock().map_err(|e| e.to_string())?;
+        lock.clone()
+    };
+    let app_handle = app.clone();
+    let success = auth
+        .verify_reauth_code(&code, trust_device, move |step| {
             let _ = app_handle.emit("login-step", &step);
         })
         .await
         .map_err(|e| e.to_string())?;
+    complete_login(&state, success).await
+}
 
-    let client = JWClient::new(&cookies).map_err(|e| e.to_string())?;
+async fn complete_login(state: &AppState, success: AuthSuccess) -> Result<UserInfo, String> {
+    let client = JWClient::new(&success.cookies).map_err(|e| e.to_string())?;
     let raw = client.get_user_info().await.map_err(|e| e.to_string())?;
     let user = parse_user_info(&raw);
 
@@ -74,7 +147,12 @@ pub async fn login(
     *lock = Some(client);
 
     // 登录成功后保存凭据
-    save_credentials_to_file(&state, &username, &cas_password, &wisedu_password);
+    save_credentials_to_file(
+        state,
+        &success.username,
+        &success.cas_password,
+        &success.wisedu_password,
+    );
 
     Ok(user)
 }
@@ -82,7 +160,9 @@ pub async fn login(
 /// 从文件加载缓存的凭据
 fn load_credentials_from_file(state: &AppState) -> Option<(String, String, String)> {
     let path = state.config_dir.join("credentials.json");
-    if !path.exists() { return None; }
+    if !path.exists() {
+        return None;
+    }
     let content = std::fs::read_to_string(&path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&content).ok()?;
     Some((
@@ -93,21 +173,25 @@ fn load_credentials_from_file(state: &AppState) -> Option<(String, String, Strin
 }
 
 /// 保存凭据到文件
-fn save_credentials_to_file(state: &AppState, username: &str, cas_password: &str, wisedu_password: &str) {
+fn save_credentials_to_file(
+    state: &AppState,
+    username: &str,
+    cas_password: &str,
+    wisedu_password: &str,
+) {
     let path = state.config_dir.join("credentials.json");
     let json = serde_json::json!({
         "username": username,
         "cas_password": cas_password,
         "wisedu_password": wisedu_password,
-    }).to_string();
+    })
+    .to_string();
     let _ = std::fs::create_dir_all(&state.config_dir);
     let _ = std::fs::write(&path, &json);
 }
 
 #[tauri::command]
-pub fn load_credentials(
-    state: State<'_, AppState>,
-) -> Result<Option<serde_json::Value>, String> {
+pub fn load_credentials(state: State<'_, AppState>) -> Result<Option<serde_json::Value>, String> {
     if let Some((u, c, w)) = load_credentials_from_file(&state) {
         Ok(Some(serde_json::json!({
             "username": u,
@@ -135,9 +219,7 @@ pub async fn logout(state: State<'_, AppState>) -> Result<(), String> {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[tauri::command]
-pub async fn refresh_dashboard(
-    state: State<'_, AppState>,
-) -> Result<DashboardData, String> {
+pub async fn refresh_dashboard(state: State<'_, AppState>) -> Result<DashboardData, String> {
     let client = get_client(&state)?;
     let raw_user = client.get_user_info().await.map_err(|e| e.to_string())?;
     let raw_grades = client.get_grades("", "").await.map_err(|e| e.to_string())?;
@@ -169,7 +251,10 @@ pub async fn get_schedule(
     term: String,
 ) -> Result<Vec<ScheduleEntry>, String> {
     let client = get_client(&state)?;
-    let raw = client.get_schedule(&year, &term).await.map_err(|e| e.to_string())?;
+    let raw = client
+        .get_schedule(&year, &term)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(parse_schedule(&raw))
 }
 
@@ -180,7 +265,10 @@ pub async fn get_exams(
     term: String,
 ) -> Result<Vec<ExamEntry>, String> {
     let client = get_client(&state)?;
-    let raw = client.get_exams(&year, &term).await.map_err(|e| e.to_string())?;
+    let raw = client
+        .get_exams(&year, &term)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(parse_exams(&raw))
 }
 
@@ -189,9 +277,7 @@ pub async fn get_exams(
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[tauri::command]
-pub async fn get_course_tabs(
-    state: State<'_, AppState>,
-) -> Result<Vec<CourseTab>, String> {
+pub async fn get_course_tabs(state: State<'_, AppState>) -> Result<Vec<CourseTab>, String> {
     let client = get_client(&state)?;
     let (_, tabs) = client.xsxk_index().await.map_err(|e| e.to_string())?;
     Ok(tabs)
@@ -229,9 +315,7 @@ pub async fn get_course_detail(
 }
 
 #[tauri::command]
-pub async fn get_selected_courses(
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
+pub async fn get_selected_courses(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = get_client(&state)?;
     let (html, _) = client.xsxk_index().await.map_err(|e| e.to_string())?;
     let ctx = client.get_student_context(&html);
@@ -249,10 +333,15 @@ pub async fn enroll_single(
     let client = get_client(&state)?;
     client
         .enroll_course(
-            &target.jxb_ids, &target.kch_id, &target.kcmc,
-            &target.xkkz_id, &target.kklxdm,
-            &target.xkxnm, &target.xkxqm,
-            &target.njdm_id, &target.zyh_id,
+            &target.jxb_ids,
+            &target.kch_id,
+            &target.kcmc,
+            &target.xkkz_id,
+            &target.kklxdm,
+            &target.xkxnm,
+            &target.xkxqm,
+            &target.njdm_id,
+            &target.zyh_id,
         )
         .await
         .map_err(|e| e.to_string())
@@ -276,9 +365,15 @@ async fn try_relogin(
     }
     let content = std::fs::read_to_string(&creds_path).map_err(|e| e.to_string())?;
     let v: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
-    let username = v.get("username").and_then(|s| s.as_str()).ok_or("no username in creds")?;
+    let username = v
+        .get("username")
+        .and_then(|s| s.as_str())
+        .ok_or("no username in creds")?;
     let cas_pw = v.get("cas_password").and_then(|s| s.as_str()).unwrap_or("");
-    let wisedu_pw = v.get("wisedu_password").and_then(|s| s.as_str()).unwrap_or(cas_pw);
+    let wisedu_pw = v
+        .get("wisedu_password")
+        .and_then(|s| s.as_str())
+        .unwrap_or(cas_pw);
 
     log::info!("try_relogin: re-logging as {username}");
 
@@ -417,7 +512,10 @@ pub async fn sniper_start(
             let delay = tokio::time::Duration::from_millis(delay_ms.max(200.0) as u64);
             log::info!(
                 "sniper: sleeping {:?} (base={}ms, errors={}, jitter={:.0}ms)",
-                delay, base_interval_ms, consecutive_errors, delay_ms
+                delay,
+                base_interval_ms,
+                consecutive_errors,
+                delay_ms
             );
             tokio::time::sleep(delay).await;
         }
@@ -429,9 +527,7 @@ pub async fn sniper_start(
 }
 
 #[tauri::command]
-pub async fn sniper_tick(
-    sniper_state: State<'_, SniperState>,
-) -> Result<SniperTickResult, String> {
+pub async fn sniper_tick(sniper_state: State<'_, SniperState>) -> Result<SniperTickResult, String> {
     let sniper = {
         let lock = sniper_state.sniper.lock().map_err(|e| e.to_string())?;
         lock.as_ref().ok_or("Sniper not running")?.clone()
@@ -440,9 +536,7 @@ pub async fn sniper_tick(
 }
 
 #[tauri::command]
-pub async fn sniper_stop(
-    sniper_state: State<'_, SniperState>,
-) -> Result<(), String> {
+pub async fn sniper_stop(sniper_state: State<'_, SniperState>) -> Result<(), String> {
     {
         let lock = sniper_state.sniper.lock().map_err(|e| e.to_string())?;
         if let Some(s) = lock.as_ref() {
@@ -494,8 +588,11 @@ fn parse_user_info(raw: &serde_json::Value) -> UserInfo {
             .get("zymc")
             .or_else(|| raw.get("bm"))
             .and_then(|v| {
-                if v.is_object() { v.get("mc").and_then(|m| m.as_str()) }
-                else { v.as_str() }
+                if v.is_object() {
+                    v.get("mc").and_then(|m| m.as_str())
+                } else {
+                    v.as_str()
+                }
             })
             .unwrap_or("-")
             .to_string(),
@@ -505,24 +602,32 @@ fn parse_user_info(raw: &serde_json::Value) -> UserInfo {
 
 fn parse_grades(raw: &serde_json::Value) -> GradeSummary {
     let items: Vec<&serde_json::Value> = raw
-        .get("items").and_then(|a| a.as_array())
-        .or_else(|| raw.get("data").and_then(|d| d.get("items").or_else(|| d.get("rows"))).and_then(|a| a.as_array()))
+        .get("items")
+        .and_then(|a| a.as_array())
+        .or_else(|| {
+            raw.get("data")
+                .and_then(|d| d.get("items").or_else(|| d.get("rows")))
+                .and_then(|a| a.as_array())
+        })
         .or_else(|| raw.get("data").and_then(|d| d.as_array()))
         .map(|a| a.iter().collect())
         .unwrap_or_default();
 
-    let courses: Vec<GradeEntry> = items.iter().map(|c| GradeEntry {
-        name:       str_val(c, &["kcmc", "courseName", "name"], ""),
-        score:      str_val(c, &["cj", "score", "bfzcj"], ""),
-        credit:     str_val(c, &["xf", "credit"], ""),
-        point:      str_val(c, &["jd", "point"], ""),
-        nature:     str_val(c, &["kcgsmc", "nature"], ""),
-        course_type: str_val(c, &["kclbmc", "type"], ""),
-        term_name:  str_val(c, &["xqmmc", "termName"], ""),
-        year:       str_val(c, &["xnm", "year"], ""),
-        term:       str_val(c, &["xqm", "term"], ""),
-        remark:     String::new(),
-    }).collect();
+    let courses: Vec<GradeEntry> = items
+        .iter()
+        .map(|c| GradeEntry {
+            name: str_val(c, &["kcmc", "courseName", "name"], ""),
+            score: str_val(c, &["cj", "score", "bfzcj"], ""),
+            credit: str_val(c, &["xf", "credit"], ""),
+            point: str_val(c, &["jd", "point"], ""),
+            nature: str_val(c, &["kcgsmc", "nature"], ""),
+            course_type: str_val(c, &["kclbmc", "type"], ""),
+            term_name: str_val(c, &["xqmmc", "termName"], ""),
+            year: str_val(c, &["xnm", "year"], ""),
+            term: str_val(c, &["xqm", "term"], ""),
+            remark: String::new(),
+        })
+        .collect();
 
     let gpa = calc_gpa(&courses);
 
@@ -552,23 +657,40 @@ fn parse_grades(raw: &serde_json::Value) -> GradeSummary {
 
     semesters.sort_by(|a, b| b.key.cmp(&a.key));
 
-    let total_credits: f64 = courses.iter().filter_map(|c| c.credit.parse::<f64>().ok()).sum();
+    let total_credits: f64 = courses
+        .iter()
+        .filter_map(|c| c.credit.parse::<f64>().ok())
+        .sum();
 
-    GradeSummary { courses, semesters, gpa, total_credits }
+    GradeSummary {
+        courses,
+        semesters,
+        gpa,
+        total_credits,
+    }
 }
 
 fn calc_gpa(courses: &[GradeEntry]) -> f64 {
     let (tp, tc) = courses.iter().fold((0.0, 0.0), |(tp, tc), c| {
         let cr: f64 = c.credit.parse().unwrap_or(0.0);
         let pt: f64 = c.point.parse().unwrap_or(0.0);
-        if cr > 0.0 { (tp + pt * cr, tc + cr) } else { (tp, tc) }
+        if cr > 0.0 {
+            (tp + pt * cr, tc + cr)
+        } else {
+            (tp, tc)
+        }
     });
-    if tc > 0.0 { (tp / tc * 100.0).round() / 100.0 } else { 0.0 }
+    if tc > 0.0 {
+        (tp / tc * 100.0).round() / 100.0
+    } else {
+        0.0
+    }
 }
 
 fn parse_schedule(raw: &serde_json::Value) -> Vec<ScheduleEntry> {
     let items: Vec<&serde_json::Value> = raw
-        .get("kbList").and_then(|a| a.as_array())
+        .get("kbList")
+        .and_then(|a| a.as_array())
         .or_else(|| raw.get("items").and_then(|a| a.as_array()))
         .map(|a| a.iter().collect())
         .unwrap_or_default();
@@ -579,28 +701,34 @@ fn parse_schedule(raw: &serde_json::Value) -> Vec<ScheduleEntry> {
         if let Some(nested) = c.get("kbList").and_then(|a| a.as_array()) {
             for kb in nested {
                 let entry = ScheduleEntry {
-                    day:       str_val(kb, &["xqjmc", "day"], ""),
-                    sessions:  str_val(kb, &["jcs", "sessions"], ""),
+                    day: str_val(kb, &["xqjmc", "day"], ""),
+                    sessions: str_val(kb, &["jcs", "sessions"], ""),
                     course_name: str_val(kb, &["kcmc", "courseName"], ""),
-                    teacher:   str_val(kb, &["jsxm", "teacher"], ""),
-                    location:  str_val(kb, &["cdmc", "location"], ""),
-                    weeks:     str_val(kb, &["zcd", "weeks"], ""),
+                    teacher: str_val(kb, &["jsxm", "teacher"], ""),
+                    location: str_val(kb, &["cdmc", "location"], ""),
+                    weeks: str_val(kb, &["zcd", "weeks"], ""),
                 };
-                let key = format!("{}|{}|{}|{}|{}", entry.day, entry.sessions, entry.course_name, entry.location, entry.weeks);
+                let key = format!(
+                    "{}|{}|{}|{}|{}",
+                    entry.day, entry.sessions, entry.course_name, entry.location, entry.weeks
+                );
                 if seen.insert(key) {
                     entries.push(entry);
                 }
             }
         } else {
             let entry = ScheduleEntry {
-                day:       str_val(c, &["xqjmc", "day"], ""),
-                sessions:  str_val(c, &["jcs", "sessions"], ""),
+                day: str_val(c, &["xqjmc", "day"], ""),
+                sessions: str_val(c, &["jcs", "sessions"], ""),
                 course_name: str_val(c, &["kcmc", "courseName"], ""),
-                teacher:   str_val(c, &["jsxm", "teacher"], ""),
-                location:  str_val(c, &["cdmc", "location"], ""),
-                weeks:     str_val(c, &["zcd", "weeks"], ""),
+                teacher: str_val(c, &["jsxm", "teacher"], ""),
+                location: str_val(c, &["cdmc", "location"], ""),
+                weeks: str_val(c, &["zcd", "weeks"], ""),
             };
-            let key = format!("{}|{}|{}|{}|{}", entry.day, entry.sessions, entry.course_name, entry.location, entry.weeks);
+            let key = format!(
+                "{}|{}|{}|{}|{}",
+                entry.day, entry.sessions, entry.course_name, entry.location, entry.weeks
+            );
             if seen.insert(key) {
                 entries.push(entry);
             }
@@ -610,13 +738,18 @@ fn parse_schedule(raw: &serde_json::Value) -> Vec<ScheduleEntry> {
 }
 
 fn parse_exams(raw: &serde_json::Value) -> Vec<ExamEntry> {
-    raw.get("items").and_then(|a| a.as_array())
-        .map(|a| a.iter().map(|c| ExamEntry {
-            course_name: str_val(c, &["kcmc", "courseName"], ""),
-            datetime:    str_val(c, &["kssj", "datetime"], ""),
-            location:    str_val(c, &["cdmc", "cdbh", "location"], ""),
-            seat:        str_val(c, &["zwh", "seat"], ""),
-        }).collect())
+    raw.get("items")
+        .and_then(|a| a.as_array())
+        .map(|a| {
+            a.iter()
+                .map(|c| ExamEntry {
+                    course_name: str_val(c, &["kcmc", "courseName"], ""),
+                    datetime: str_val(c, &["kssj", "datetime"], ""),
+                    location: str_val(c, &["cdmc", "cdbh", "location"], ""),
+                    seat: str_val(c, &["zwh", "seat"], ""),
+                })
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -624,7 +757,9 @@ fn str_val(v: &serde_json::Value, keys: &[&str], default: &str) -> String {
     for k in keys {
         if let Some(s) = v.get(k).and_then(|v| v.as_str()) {
             let s = s.trim();
-            if !s.is_empty() { return s.to_string(); }
+            if !s.is_empty() {
+                return s.to_string();
+            }
         }
     }
     default.to_string()

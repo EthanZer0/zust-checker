@@ -23,6 +23,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::check_session,
             commands::login,
+            commands::refresh_captcha,
+            commands::send_reauth_code,
+            commands::verify_reauth_code,
             commands::logout,
             commands::refresh_dashboard,
             commands::get_grades,

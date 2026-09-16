@@ -85,7 +85,10 @@ impl JWClient {
             Ok(v) => Ok(v),
             Err(_) => {
                 let mut m = serde_json::Map::new();
-                m.insert("_raw".into(), JsonValue::String(body.chars().take(2000).collect()));
+                m.insert(
+                    "_raw".into(),
+                    JsonValue::String(body.chars().take(2000).collect()),
+                );
                 Ok(JsonValue::Object(m))
             }
         }
@@ -95,15 +98,9 @@ impl JWClient {
     async fn _get_html(&self, path: &str) -> Result<JsonValue> {
         let url = format!("{JW_BASE}/{path}");
         let mut headers = self.api_headers();
-        headers.insert(
-            "Accept".into(),
-            "text/html, */*; q=0.01".into(),
-        );
+        headers.insert("Accept".into(), "text/html, */*; q=0.01".into());
 
-        let (body, _, _) = self
-            .session
-            .get_with_headers(&url, &headers)
-            .await?;
+        let (body, _, _) = self.session.get_with_headers(&url, &headers).await?;
 
         // 尝试 JSON 解析
         if let Ok(v) = serde_json::from_str::<JsonValue>(&body) {
@@ -128,9 +125,7 @@ impl JWClient {
             .join("&");
 
         log::info!("POST {url}");
-        log::info!("  body ({len} fields): {form_body}",
-            len = data.len(),
-        );
+        log::info!("  body ({len} fields): {form_body}", len = data.len(),);
 
         let (body, final_url, status) = self
             .session
@@ -149,24 +144,20 @@ impl JWClient {
             Err(e) => {
                 log::warn!("  → JSON parse failed: {e}");
                 let mut m = serde_json::Map::new();
-                m.insert("_raw".into(), JsonValue::String(body.chars().take(2000).collect()));
+                m.insert(
+                    "_raw".into(),
+                    JsonValue::String(body.chars().take(2000).collect()),
+                );
                 Ok(JsonValue::Object(m))
             }
         }
     }
 
     /// POST 请求（HTML 响应） — 使用 Vec 保序
-    async fn _post_html(
-        &self,
-        path: &str,
-        data: &[(&str, &str)],
-    ) -> Result<JsonValue> {
+    async fn _post_html(&self, path: &str, data: &[(&str, &str)]) -> Result<JsonValue> {
         let url = format!("{JW_BASE}/{path}");
         let mut headers = self.api_headers();
-        headers.insert(
-            "Accept".into(),
-            "text/html, */*; q=0.01".into(),
-        );
+        headers.insert("Accept".into(), "text/html, */*; q=0.01".into());
 
         let form_body: String = data
             .iter()
@@ -175,14 +166,10 @@ impl JWClient {
             .join("&");
 
         log::info!("POST(HTML) {url}");
-        log::info!("  body ({len} fields): {form_body}",
-            len = data.len(),
-        );
+        log::info!("  body ({len} fields): {form_body}", len = data.len(),);
 
-        let (body, final_url, status) = self
-            .session
-            .post_with_headers(&url, data, &headers)
-            .await?;
+        let (body, final_url, status) =
+            self.session.post_with_headers(&url, data, &headers).await?;
 
         log::info!("  → status={status}, url={final_url}");
         let preview_len = body.floor_char_boundary(body.len().min(500));
@@ -211,7 +198,10 @@ impl JWClient {
 
     /// 测试 session 是否有效
     pub async fn test_session(&self) -> bool {
-        match self._get("xsxxxggl/xsxxwh_cxCkDgxsxx.html?gnmkdm=N100801").await {
+        match self
+            ._get("xsxxxggl/xsxxwh_cxCkDgxsxx.html?gnmkdm=N100801")
+            .await
+        {
             Ok(v) => {
                 if v.get("_raw").is_some() {
                     v["_raw"].as_str().map_or(false, |s| s.contains("bh_id"))
@@ -225,7 +215,8 @@ impl JWClient {
 
     /// 获取用户信息
     pub async fn get_user_info(&self) -> Result<JsonValue> {
-        self._get("xsxxxggl/xsxxwh_cxCkDgxsxx.html?gnmkdm=N100801").await
+        self._get("xsxxxggl/xsxxwh_cxCkDgxsxx.html?gnmkdm=N100801")
+            .await
     }
 
     /// 获取成绩
@@ -241,18 +232,16 @@ impl JWClient {
 
         log::info!("get_grades year={year} term={term}");
 
-        self._post(
-            "cjcx/cjcx_cxDgXscj.html?doType=query&gnmkdm=N305005",
-            &data,
-        )
-        .await
+        self._post("cjcx/cjcx_cxDgXscj.html?doType=query&gnmkdm=N305005", &data)
+            .await
     }
 
     /// 获取课表
     pub async fn get_schedule(&self, year: &str, term: &str) -> Result<JsonValue> {
         let data: Vec<(&str, &str)> = vec![("xnm", year), ("xqm", term)];
 
-        self._post("kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151", &data).await
+        self._post("kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151", &data)
+            .await
     }
 
     /// 获取考试安排
@@ -273,14 +262,14 @@ impl JWClient {
 
     /// 获取学业情况
     pub async fn get_academics(&self) -> Result<JsonValue> {
-        self._get("xsxy/xsxyqk_cxXsxyqkIndex.html?gnmkdm=N105515&layout=default").await
+        self._get("xsxy/xsxyqk_cxXsxyqkIndex.html?gnmkdm=N105515&layout=default")
+            .await
     }
 
     /// 获取选课首页 → 返回 (HTML, tabs 列表)
     pub async fn xsxk_index(&self) -> Result<(String, Vec<CourseTab>)> {
-        let url = format!(
-            "{JW_BASE}/xsxk/zzxkyzb_cxZzxkYzbIndex.html?gnmkdm=N253512&layout=default"
-        );
+        let url =
+            format!("{JW_BASE}/xsxk/zzxkyzb_cxZzxkYzbIndex.html?gnmkdm=N253512&layout=default");
         let mut headers = self.api_headers();
         headers.insert("Referer".into(), self.main_url.clone());
         headers.insert(
@@ -289,10 +278,7 @@ impl JWClient {
                 .into(),
         );
 
-        let (html, _final_url, _status) = self
-            .session
-            .get_with_headers(&url, &headers)
-            .await?;
+        let (html, _final_url, _status) = self.session.get_with_headers(&url, &headers).await?;
 
         // Parse tabs — same pattern as Python _xsxk_index():
         // <a onclick="queryCourse(this, '01', 'A1B2...', '2025', '1024')">主修课程</a>
@@ -308,7 +294,10 @@ impl JWClient {
                 xkkz_id: c.get(2).map(|m| m.as_str().to_string()).unwrap_or_default(),
                 njdm_id: c.get(3).map(|m| m.as_str().to_string()).unwrap_or_default(),
                 zyh_id: c.get(4).map(|m| m.as_str().to_string()).unwrap_or_default(),
-                name: c.get(5).map(|m| m.as_str().trim().to_string()).unwrap_or_default(),
+                name: c
+                    .get(5)
+                    .map(|m| m.as_str().trim().to_string())
+                    .unwrap_or_default(),
             })
             .collect();
 
@@ -325,47 +314,72 @@ impl JWClient {
         // bh_id — <input name="bh_id" ... value="12510252"/>
         if let Some(re) = regex::Regex::new(r#"name="bh_id"[^>]+value="(\d+)""#).ok() {
             if let Some(cap) = re.captures(html) {
-                ctx.bh_id = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                ctx.bh_id = cap
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
             }
         }
 
         // njdm_id — <input name="njdm_id" ... value="2025"/>
         if let Some(re) = regex::Regex::new(r#"name="njdm_id"[^>]+value="(\d+)""#).ok() {
             if let Some(cap) = re.captures(html) {
-                ctx.njdm_id = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                ctx.njdm_id = cap
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
             }
         }
 
         // zyh_id — <input name="zyh_id" ... value="1024"/>
         if let Some(re) = regex::Regex::new(r#"name="zyh_id"[^>]+value="(\d+)""#).ok() {
             if let Some(cap) = re.captures(html) {
-                ctx.zyh_id = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                ctx.zyh_id = cap
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
             }
         }
 
         // jg_id (hex) — <input name="jg_id" ... value="0A1B2C..."/>
         if let Some(re) = regex::Regex::new(r#"name="jg_id"[^>]+value="([A-Fa-f0-9]+)""#).ok() {
             if let Some(cap) = re.captures(html) {
-                ctx.jg_id = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                ctx.jg_id = cap
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
             }
         }
 
         // xkxnm (academic year) — <input name="xkxnm" ... value="2026"/>
         if let Some(re) = regex::Regex::new(r#"name="xkxnm"[^>]+value="(\d+)""#).ok() {
             if let Some(cap) = re.captures(html) {
-                ctx.xkxnm = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                ctx.xkxnm = cap
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
             }
         }
 
         // xkxqm (academic term) — <input name="xkxqm" ... value="3"/>
         if let Some(re) = regex::Regex::new(r#"name="xkxqm"[^>]+value="(\d+)""#).ok() {
             if let Some(cap) = re.captures(html) {
-                ctx.xkxqm = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                ctx.xkxqm = cap
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
             }
         }
 
-        log::info!("StudentContext: bh_id={}, njdm_id={}, zyh_id={}, jg_id={}, xkxnm={}, xkxqm={}",
-            ctx.bh_id, ctx.njdm_id, ctx.zyh_id, ctx.jg_id, ctx.xkxnm, ctx.xkxqm);
+        log::info!(
+            "StudentContext: bh_id={}, njdm_id={}, zyh_id={}, jg_id={}, xkxnm={}, xkxqm={}",
+            ctx.bh_id,
+            ctx.njdm_id,
+            ctx.zyh_id,
+            ctx.jg_id,
+            ctx.xkxnm,
+            ctx.xkxqm
+        );
 
         ctx
     }
@@ -389,11 +403,8 @@ impl JWClient {
             ("jspage", "0"),
         ];
 
-        self._post_html(
-            "xsxk/zzxkyzb_cxZzxkYzbDisplay.html?gnmkdm=N253512",
-            &data,
-        )
-        .await
+        self._post_html("xsxk/zzxkyzb_cxZzxkYzbDisplay.html?gnmkdm=N253512", &data)
+            .await
     }
 
     /// 获取课程列表（分页 JSON）— 字段顺序与 Python 严格一致
@@ -495,7 +506,8 @@ impl JWClient {
                 .await?;
 
             let items = extract_items(&r);
-            log::info!("  → got {} items (raw keys: {:?})",
+            log::info!(
+                "  → got {} items (raw keys: {:?})",
                 items.len(),
                 r.as_object().map(|o| o.keys().collect::<Vec<_>>())
             );
@@ -592,10 +604,7 @@ impl JWClient {
 
     /// 获取已选课程
     /// Parameters match the browser's actual request (NOT the Python implementation's guess)
-    pub async fn get_selected_courses(
-        &self,
-        ctx: &StudentContext,
-    ) -> Result<JsonValue> {
+    pub async fn get_selected_courses(&self, ctx: &StudentContext) -> Result<JsonValue> {
         // Browser sends: jg_id, zyh_id, njdm_id, zyfx_id, bh_id, xz, ccdm, xqh_id, xkxnm, xkxqm, xkly
         let data: Vec<(&str, &str)> = vec![
             ("jg_id", &ctx.jg_id),
@@ -611,15 +620,18 @@ impl JWClient {
             ("xkly", "1"),
         ];
 
-        let result = self._post(
-            "xsxk/zzxkyzb_cxZzxkYzbChoosedDisplay.html?gnmkdm=N253512",
-            &data,
-        )
-        .await?;
+        let result = self
+            ._post(
+                "xsxk/zzxkyzb_cxZzxkYzbChoosedDisplay.html?gnmkdm=N253512",
+                &data,
+            )
+            .await?;
 
-        log::info!("get_selected_courses result: is_array={}, len={}",
+        log::info!(
+            "get_selected_courses result: is_array={}, len={}",
             result.is_array(),
-            result.as_array().map(|a| a.len()).unwrap_or(0));
+            result.as_array().map(|a| a.len()).unwrap_or(0)
+        );
 
         Ok(result)
     }
@@ -659,11 +671,8 @@ impl JWClient {
             ("jcxx_id", ""),
         ];
 
-        self._post(
-            "xsxk/zzxkyzbjk_xkBcZyZzxkYzb.html?gnmkdm=N253512",
-            &data,
-        )
-        .await
+        self._post("xsxk/zzxkyzbjk_xkBcZyZzxkYzb.html?gnmkdm=N253512", &data)
+            .await
     }
 
     /// 退课
@@ -682,11 +691,8 @@ impl JWClient {
             ("txbsfrl", "0"),
         ];
 
-        self._post(
-            "xsxk/zzxkyzb_tuikBcZzxkYzb.html?gnmkdm=N253512",
-            &data,
-        )
-        .await
+        self._post("xsxk/zzxkyzb_tuikBcZzxkYzb.html?gnmkdm=N253512", &data)
+            .await
     }
 
     /// 预检测课程（选课前的容量检查）
@@ -711,11 +717,8 @@ impl JWClient {
             ("kklxdm", kklxdm),
         ];
 
-        self._post(
-            "xsxk/zzxkyzb_cxXkTitleMsg.html?gnmkdm=N253512",
-            &data,
-        )
-        .await
+        self._post("xsxk/zzxkyzb_cxXkTitleMsg.html?gnmkdm=N253512", &data)
+            .await
     }
 }
 

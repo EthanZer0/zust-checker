@@ -14,8 +14,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
-        let config_dir = dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."));
+        let config_dir = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
         Self {
             client: Arc::new(Mutex::new(None)),
             auth_manager: Mutex::new(AuthManager::new()),
